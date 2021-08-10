@@ -141,5 +141,3 @@ ofdmfilttype_2gbe=1
 #deadman_to=1
 btc_mode=1
 muxenab=0x1
-
-wowl_gpio=5
