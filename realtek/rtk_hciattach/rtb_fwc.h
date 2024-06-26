@@ -97,6 +97,6 @@ enum rtk_read_class {
 };
 
 struct patch_info *get_patch_entry(struct rtb_struct *btrtl);
-uint8_t *rtb_read_config(const char *file, int *cfg_len, uint8_t chip_type);
+uint8_t *rtb_read_config(const char *file, int *cfg_len, uint8_t chip_type, char* bdaddr_str);
 uint8_t *rtb_read_firmware(struct rtb_struct *btrtl, int *fw_len);
 uint8_t *rtb_get_final_patch(int fd, int proto, int *rlen);

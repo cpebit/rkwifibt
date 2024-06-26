@@ -173,10 +173,11 @@ int set_speed(int fd, struct termios *ti, int speed)
 static int realtek_init(int fd, struct uart_t *u, struct termios *ti)
 {
 
-	RS_INFO("Realtek Bluetooth init uart with init speed:%d, type:HCI UART %s",
+	RS_INFO("Realtek Bluetooth init uart with init speed:%d, type:HCI UART %s, bdaddr: %s",
 		u->init_speed,
-		(u->proto == HCI_UART_H4) ? "H4" : "H5");
-	return rtb_init(fd, u->proto, u->speed, ti);
+		(u->proto == HCI_UART_H4) ? "H4" : "H5",
+        u->bdaddr);
+	return rtb_init(fd, u->proto, u->speed, u->bdaddr, ti);
 }
 
 static int realtek_post(int fd, struct uart_t *u, struct termios *ti)
