@@ -1,5 +1,4 @@
 CFLAGS := -Wall -g
-#CC := $(CROSS_COMPLE)gcc
 all: rtk_hciattach
 OBJS := hciattach.o hciattach_rtk.o hciattach_h4.o rtb_fwc.o
 
