@@ -206,6 +206,6 @@ struct hci_cc_common {
 
 int timeout_set(int fd, unsigned int msec);
 int set_speed(int fd, struct termios *ti, int speed);
-int rtb_init(int fd, int proto, int speed, struct termios *ti);
+int rtb_init(int fd, int proto, int speed, char* bdaddr, struct termios *ti);
 int rtb_post(int fd, int proto, struct termios *ti);
 void util_hexdump(const uint8_t *buf, size_t len);

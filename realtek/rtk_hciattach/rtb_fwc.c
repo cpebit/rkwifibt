@@ -36,8 +36,6 @@
 #define FIRMWARE_DIRECTORY	"/lib/firmware/rtlbt/"
 #define BT_CONFIG_DIRECTORY	"/lib/firmware/rtlbt/"
 #define EXTRA_CONFIG_FILE	"/opt/rtk_btconfig.txt"
-#define BT_ADDR_FILE		"/opt/bdaddr"
-#define BDADDR_STRING_LEN	17
 
 struct list_head {
 	struct list_head *next, *prev;
@@ -770,31 +768,6 @@ int rtb_parse_config(uint8_t *cfg_buf, size_t len)
 	return 0;
 }
 
-static int bachk(const char *str)
-{
-	if (!str)
-		return -1;
-
-	if (strlen(str) != 17)
-		return -1;
-
-	while (*str) {
-		if (!isxdigit(*str++))
-			return -1;
-
-		if (!isxdigit(*str++))
-			return -1;
-
-		if (*str == 0)
-			break;
-
-		if (*str++ != ':')
-			return -1;
-	}
-
-	return 0;
-}
-
 /*
  * Get random Bluetooth addr.
  */
@@ -832,14 +805,13 @@ static int bachk(const char *str)
 /*
  * Read and parse Realtek Bluetooth Config file.
  */
-uint8_t *rtb_read_config(const char *file, int *cfg_len, uint8_t chip_type)
+uint8_t *rtb_read_config(const char *file, int *cfg_len, uint8_t chip_type, char* bdaddr_str)
 {
 	char *file_name;
 	struct stat st;
 	ssize_t file_len;
 	int fd;
 	uint8_t *buf;
-	size_t size;
 	ssize_t result;
 	struct list_head *pos, *next;
 	struct cfg_list_item *n;
@@ -862,43 +834,12 @@ uint8_t *rtb_read_config(const char *file, int *cfg_len, uint8_t chip_type)
 		RS_INFO("extra cfg: ofs %04x, len %u", n->offset, n->len);
 	}
 
-	fd = open(BT_ADDR_FILE, O_RDONLY);
-	if (fd == -1) {
-		RS_INFO("Couldnt open BT MAC file %s, %s", BT_ADDR_FILE,
-			strerror(errno));
-	} else {
+    if (bdaddr_str) {
 		uint16_t ofs;
-		char *str;
 		int i = 0;
 		uint8_t bdaddr[6];
-		uint8_t tbuf[BDADDR_STRING_LEN + 1];
 
-		if (fstat(fd, &st) < 0) {
-			RS_INFO("Couldnt access customer BT MAC file %s",
-					BT_ADDR_FILE);
-			close(fd);
-			goto read_cfg;
-		}
-
-		size = st.st_size;
-		/* Only read the first 17-byte if the file length is larger */
-		if (size > BDADDR_STRING_LEN)
-			size = BDADDR_STRING_LEN;
-
-		memset(tbuf, 0, sizeof(tbuf));
-		result = read(fd, tbuf, size);
-		close(fd);
-		if (result == -1) {
-			RS_ERR("Couldnt read BT MAC file %s, err %s",
-			       BT_ADDR_FILE, strerror(errno));
-			goto read_cfg;
-		}
-
-		if (bachk((const char *)tbuf) < 0) {
-			goto read_cfg;
-		}
-
-		str = (char *)tbuf;
+		char* str = bdaddr_str;
 		for (i = 5; i >= 0; i--) {
 			bdaddr[i] = (uint8_t)strtoul(str, NULL, 16);
 			str += 3;

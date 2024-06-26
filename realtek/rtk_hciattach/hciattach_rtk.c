@@ -1952,7 +1952,7 @@ static int check_fw_chip_ver(int fd)
  * speed is the init_speed in uart struct
  * Returns 0 on success
  */
-static int rtb_config(int fd, int proto, int speed, struct termios *ti)
+static int rtb_config(int fd, int proto, int speed, char* bdaddr, struct termios *ti)
 {
 	int final_speed = 0;
 	int ret = 0;
@@ -2072,7 +2072,8 @@ static int rtb_config(int fd, int proto, int speed, struct termios *ti)
 
 	rtb_cfg.config_buf = rtb_read_config(rtb_cfg.patch_ent->config_file,
 					     &rtb_cfg.config_len,
-					     rtb_cfg.patch_ent->chip_type);
+					     rtb_cfg.patch_ent->chip_type,
+                         bdaddr);
 	if (!rtb_cfg.config_buf) {
 		RS_ERR("Read Config file error, use eFuse settings");
 		rtb_cfg.config_len = 0;
@@ -2318,7 +2319,7 @@ buf_free:
 	return -1;
 }
 
-int rtb_init(int fd, int proto, int speed, struct termios *ti)
+int rtb_init(int fd, int proto, int speed, char* bdaddr, struct termios *ti)
 {
 	struct epoll_event ev;
 	int result;
@@ -2367,7 +2368,7 @@ int rtb_init(int fd, int proto, int speed, struct termios *ti)
 			return -1;;
 	}
 
-	result = rtb_config(fd, proto, speed, ti);
+	result = rtb_config(fd, proto, speed, bdaddr, ti);
 
 	epoll_ctl(rtb_cfg.epollfd, EPOLL_CTL_DEL, fd, NULL);
 	epoll_ctl(rtb_cfg.epollfd, EPOLL_CTL_DEL, rtb_cfg.timerfd, NULL);
