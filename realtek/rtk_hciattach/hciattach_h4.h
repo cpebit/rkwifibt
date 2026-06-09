@@ -9,4 +9,5 @@ int h4_vendor_read_rom_ver(int fd);
 uint8_t *h4_vendor_cmd(int fd, uint16_t opcode, uint8_t subopcode,
 		       uint8_t plen, uint8_t *param, uint32_t to);
 int h4_needs_hci_upgrade(int fd, uint8_t *buf, uint32_t len);
-int h4_enable_gen_iso_num_compl_pkt_evt(int fd);
+int h4_force_ota(int fd);
+int h4_read_img_ver(int fd);

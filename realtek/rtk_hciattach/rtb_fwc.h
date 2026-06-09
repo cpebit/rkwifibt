@@ -15,6 +15,7 @@
 struct rtb_struct;
 
 #define BAUDRATE_4BYTES
+//#define AUTO_UPDATE_FOR_8761C
 
 #define ROM_LMP_NONE            0x0000
 #define ROM_LMP_8723a           0x1200
@@ -32,6 +33,7 @@ struct rtb_struct;
 #define ROM_LMP_8822e           0x8822
 #define ROM_LMP_8852a           0x8852
 #define ROM_LMP_8851b           0x8851
+#define ROM_LMP_8922a           0x8922
 #define ROM_LMP_8723cs_xx       0x8704
 #define ROM_LMP_8723cs_cg       0x8705
 #define ROM_LMP_8723cs_vf       0x8706
@@ -66,10 +68,22 @@ struct rtb_struct;
 #define CHIP_8852BP	0x78
 #define CHIP_8822ES	0x79
 #define CHIP_8851BS	0x7A
+#define CHIP_8852DS	0x7B
+#define CHIP_8922AS	0x7C
+#define CHIP_8852BTS	0x7D
 #define CHIP_8761CTV	0x80
+#define CHIP_8723CS	0x81
 
 #define SUBOPCODE_CKUPG	0x01
+#define SUBOPCODE_FORCE_OTA	0x02
+#define SUBOPCODE_READ_IMG_VER	0x09
 #define SUBOPCODE_NONE	0xff
+
+#define IMG_MCUAPP   0x2793
+#define IMG_LOWERSTACK   0x279d
+#define FT_APP_VER   0x4e0010b3
+#define FT_LOWERSTACK_VER   0x002cf002
+#define IMGVER_OFFSET 0x190
 
 #define UPG_DL_BLOCK_SIZE   128
 
@@ -94,6 +108,40 @@ enum rtk_read_class {
 	READ_LMP_SUB_VERSION = 2,
 	READ_CHIP_VER = 3,
 	READ_SEC_PROJ = 4
+};
+
+typedef struct
+{
+    uint32_t img_id;
+    uint32_t img_len;
+    uint32_t img_ver;
+} T_IMG_INFO;
+
+struct img_ver
+{
+	uint16_t id;
+	uint32_t version;
+	uint32_t git_commitid;
+} __attribute__((packed));
+
+typedef struct
+{
+	struct img_ver app;
+	struct img_ver sys_patch;
+	struct img_ver lowerstack;
+} __attribute__((packed)) T_IMG_VER;
+
+struct upgrade_option
+{
+	T_IMG_VER fw_ver;
+	T_IMG_VER curr_ver;
+	uint8_t upgrade;
+};
+
+union param_common
+{
+	uint8_t upgrade;
+	T_IMG_VER ver;
 };
 
 struct patch_info *get_patch_entry(struct rtb_struct *btrtl);

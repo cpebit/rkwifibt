@@ -19,7 +19,6 @@
 #include <endian.h>
 #include <byteswap.h>
 #include <netinet/in.h>
-#include <ctype.h>
 #include <poll.h>
 #include <sys/timerfd.h>
 #include <sys/epoll.h>
@@ -28,6 +27,7 @@
 #include "rtb_fwc.h"
 
 extern struct rtb_struct rtb_cfg;
+extern struct upgrade_option upg_opt;
 
 static uint32_t get_unaligned_be32(const void *mem)
 {
@@ -43,11 +43,15 @@ static uint32_t get_unaligned_le16(const void *mem)
 	return p[1] << 8 | p[0];
 }
 
-int read_data(int fd, uint8_t *buf, int len)
+static int read_data(int fd, uint8_t *buf, size_t len)
 {
-	int t = 0, w;
+	size_t t = 0;
+	ssize_t w = 0;
 #define NUM_OF_RETRY	10
 	int count = 0;
+
+	if (fd < 0 || !buf || !len)
+		return -EINVAL;
 
 	while (len > 0) {
 		if ((w = read(fd, buf, len)) < 0) {
@@ -460,15 +464,18 @@ err:
 	return ret;
 }
 
-int h4_enable_gen_iso_num_compl_pkt_evt(int fd)
+int h4_force_ota(int fd)
 {
 	uint8_t *rsp = NULL;
 	uint8_t *mem = NULL;
+	uint8_t plen = 0;
 	struct hci_cc_common *cc;
+	struct {
+		uint8_t subopcode;
+	} __attribute__((packed)) *cc_trail;
 	int ret = -1;
-	uint8_t pdu[3] = { 0x0b, 0x09, 0x01 };
 
-	rsp = h4_vendor_cmd(fd, 0xfdbd, SUBOPCODE_NONE, sizeof(pdu), pdu, 1000);
+	rsp = h4_vendor_cmd(fd, 0xfdbb, SUBOPCODE_FORCE_OTA, plen, NULL, 1000);
 	if (!rsp) {
 		ret = -2;
 		goto err;
@@ -478,16 +485,63 @@ int h4_enable_gen_iso_num_compl_pkt_evt(int fd)
 	rsp++;
 	cc = (void *)rsp;
 	if (cc->status) {
-		RS_ERR("Status 0x%02x err of cmd %04x", cc->status,
-		       get_unaligned_le16(cc->opcode));
+		RS_ERR("Status 0x%02x err", cc->status);
 		ret = -3;
+		goto err;
+	}
+	cc_trail = (void *)(rsp + sizeof(*cc));
+	if (cc_trail->subopcode != SUBOPCODE_FORCE_OTA) {
+		RS_ERR("subopcode (%u-%u) mismatch", cc_trail->subopcode,
+		       SUBOPCODE_CKUPG);
+		ret = -4;
 		goto err;
 	}
 
 	free(mem);
+	return 0;
 
-	RS_INFO("Succeed in enabling gen iso num of completed pkt evt");
+err:
+	if (mem)
+		free(mem);
+	return ret;
+}
 
+int h4_read_img_ver(int fd)
+{
+	uint8_t *rsp = NULL;
+	uint8_t *mem = NULL;
+	uint8_t plen = 0;
+	struct hci_cc_common *cc;
+	struct {
+		uint8_t subopcode;
+		union param_common param;
+	} __attribute__((packed)) *cc_trail;
+	int ret = -1;
+
+	rsp = h4_vendor_cmd(fd, 0xfdbb, SUBOPCODE_READ_IMG_VER, plen, NULL, 1000);
+	if (!rsp) {
+		ret = -2;
+		goto err;
+	}
+
+	mem = rsp;
+	rsp++;
+	cc = (void *)rsp;
+	if (cc->status) {
+		RS_ERR("Status 0x%02x err", cc->status);
+		ret = -3;
+		goto err;
+	}
+	cc_trail = (void *)(rsp + sizeof(*cc));
+	if (cc_trail->subopcode != SUBOPCODE_READ_IMG_VER) {
+		RS_ERR("subopcode (%u-%u) mismatch", cc_trail->subopcode,
+		       SUBOPCODE_CKUPG);
+		ret = -4;
+		goto err;
+	}
+
+	memcpy(&(upg_opt.curr_ver), &(cc_trail->param.ver), sizeof(T_IMG_VER));
+	free(mem);
 	return 0;
 
 err:

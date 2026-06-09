@@ -20,7 +20,6 @@
 #include <errno.h>
 #include <unistd.h>
 #include <stdlib.h>
-#include <stdbool.h>
 #include <termios.h>
 #include <time.h>
 #include <sys/time.h>
@@ -45,7 +44,7 @@
 #include "hciattach.h"
 #include "hciattach_h4.h"
 
-#define RTK_VERSION "3.1.4796cb2.20230921-183414"
+#define RTK_VERSION "3.1.65338d1.20251211-111713"
 
 #define TIMESTAMP_PR
 
@@ -114,8 +113,7 @@ struct hci_ev_cmd_complete {
 #define OP_HCI_RESET		((1 << 24) | HCI_CMD_RESET)
 
 struct rtb_struct rtb_cfg;
-
-static uint8_t need_ota_upgrade = 0;
+struct upgrade_option upg_opt;
 
 /* bite reverse in bytes
  * 00000001 -> 10000000
@@ -155,6 +153,8 @@ const uint8_t byte_rev_table[256] = {
 	0x0f, 0x8f, 0x4f, 0xcf, 0x2f, 0xaf, 0x6f, 0xef,
 	0x1f, 0x9f, 0x5f, 0xdf, 0x3f, 0xbf, 0x7f, 0xff,
 };
+
+int rtb_init_h5(int fd, struct termios *ti);
 
 static __inline uint8_t bit_rev8(uint8_t byte)
 {
@@ -420,7 +420,12 @@ static struct sk_buff *h5_prepare_pkt(struct rtb_struct * h5, uint8_t *data,
 	uint8_t hdr[4];
 	uint16_t H5_CRC_INIT(h5_txmsg_crc);
 	int rel, i;
-
+	/*
+	if (!data)
+	{
+		return NULL;
+	}
+	*/
 	switch (pkt_type) {
 	case HCI_ACLDATA_PKT:
 	case HCI_COMMAND_PKT:
@@ -571,7 +576,11 @@ static void h5_init_hci_cc(struct sk_buff *skb)
 	struct hci_ev_cmd_complete *ev = NULL;
 	uint16_t opcode = 0;
 	uint8_t status = 0;
-
+	struct {
+		uint8_t status;
+		uint8_t subopcode;
+		union param_common param;
+	} __attribute__((packed)) *tail;
 	skb_pull(skb, HCI_EVENT_HDR_SIZE);
 	ev = (struct hci_ev_cmd_complete *)skb->data;
 	opcode = le16_to_cpu(ev->opcode);
@@ -603,7 +612,14 @@ static void h5_init_hci_cc(struct sk_buff *skb)
 			skb->data[5], skb->data[4], skb->data[3],
 			skb->data[2], skb->data[1], skb->data[0]);
 		break;
-
+	case HCI_VENDOR_8761C_COMMON:
+		RS_INFO("Received cc of 8761c common");
+		tail = (void *)skb->data;
+		if (tail->subopcode == SUBOPCODE_READ_IMG_VER)
+		{
+			memcpy(&(upg_opt.curr_ver), &(tail->param.ver), sizeof(T_IMG_VER));
+		}
+		break;
 	case HCI_CMD_READ_LOCAL_VER:
 		rtb_cfg.hci_ver = skb->data[1];
 		rtb_cfg.hci_rev = (skb->data[2] | skb->data[3] << 8);
@@ -652,10 +668,10 @@ static void h5_post_hci_cc(struct sk_buff *skb)
 	struct hci_ev_cmd_complete *ev = NULL;
 	uint16_t opcode = 0;
 	uint8_t status = 0;
-	struct cc_tail {
+	struct {
 		uint8_t status;
 		uint8_t subopcode;
-		uint8_t upgrade;
+		union param_common param;
 	} __attribute__((packed)) *tail;
 
 	skb_pull(skb, HCI_EVENT_HDR_SIZE);
@@ -687,14 +703,10 @@ static void h5_post_hci_cc(struct sk_buff *skb)
 	case HCI_VENDOR_8761C_COMMON:
 		RS_INFO("Received cc of 8761c common");
 		tail = (void *)skb->data;
-		if (tail->subopcode != SUBOPCODE_CKUPG)
+		if (tail->subopcode == SUBOPCODE_CKUPG)
 		{
-			RS_ERR("%s: Received unexpected subop %02x for cmd %04x",
-			       __func__, tail->subopcode, opcode);
-			break;
+			upg_opt.upgrade = tail->param.upgrade;
 		}
-
-		need_ota_upgrade = tail->upgrade;
 		break;
 	case HCI_CMD_RESET:
 		RS_INFO("Received cc of hci reset cmd");
@@ -894,7 +906,7 @@ static int h5_recv(struct rtb_struct *h5, void *data, int count)
 			if (h5->rx_skb->data[0] & 0x80 &&
 			    (h5->rx_skb->data[0] & 0x07) != h5->rxseq_txack) {
 				uint8_t rxseq_txack = (h5->rx_skb->data[0] & 0x07);
-				RS_ERR("Out-of-order packet arrived, got(%u)expected(%u)",
+				RS_ERR("Out-of-order packet arrived, got(%d)expected(%d)",
 				     h5->rx_skb->data[0] & 0x07,
 				     h5->rxseq_txack);
 				h5->is_txack_req = 1;
@@ -1242,6 +1254,16 @@ static int h5_download_patch(int dd, int index, uint8_t *data, int len,
 		 * 	       rtb_cfg.final_speed);
 		 * }
 		 */
+
+		if (rtb_cfg.chip_type == CHIP_8852DS) {
+			 usleep(50000);
+			 rtb_cfg.msgq_txseq = 0;
+			 rtb_cfg.rxseq_txack = 0;
+			 rtb_cfg.rxack = 0;
+			 rtb_cfg.rx_count = 0;
+			 rtb_init_h5(dd, ti);
+			 rtb_cfg.link_estab_state = H5_PATCH;
+		}
 	}
 
 	if (rtb_cfg.timerfd > 0)
@@ -1335,7 +1357,8 @@ int h5_vendor_change_speed(int fd, uint32_t baudrate)
 	cmd[1] = 0xfc;
 	cmd[2] = 4;
 
-	baudrate = cpu_to_le32(baudrate);
+	uint32_t baudrate_interim = baudrate;
+	baudrate = cpu_to_le32(baudrate_interim);
 #ifdef BAUDRATE_4BYTES
 	memcpy((uint16_t *) & cmd[3], &baudrate, 4);
 #else
@@ -1388,6 +1411,7 @@ int h5_needs_hci_upgrade(int fd, uint8_t *buf, uint32_t len)
 	}
 
 	nskb = h5_prepare_pkt(&rtb_cfg, cmd, plen + 4, HCI_COMMAND_PKT);
+	free(cmd);
 	if (!nskb) {
 		RS_ERR("Prepare command packet for ota upgrade pkt fail");
 		return -1;
@@ -1405,31 +1429,58 @@ int h5_needs_hci_upgrade(int fd, uint8_t *buf, uint32_t len)
 	return 0;
 }
 
-int h5_enable_gen_iso_num_compl_pkt_evt(int fd)
+int h5_read_img_ver(int fd)
 {
 	struct sk_buff *nskb = NULL;
 	unsigned char cmd[16] = { 0 };
 	int result;
 
-	cmd[0] = 0xbd;
+	cmd[0] = 0xbb;
 	cmd[1] = 0xfd;
-	cmd[2] = 3;
-	cmd[3] = 0x0b;
-	cmd[4] = 0x09;
-	cmd[5] = 0x01;
+	cmd[2] = 1;
+	cmd[3] = 0x09;
 
-	nskb = h5_prepare_pkt(&rtb_cfg, cmd, 6, HCI_COMMAND_PKT);
+	nskb = h5_prepare_pkt(&rtb_cfg, cmd, 4, HCI_COMMAND_PKT);
 	if (!nskb) {
-		RS_ERR("Prepare command packet for enable gen iso num compl pkt fail");
+		RS_ERR("Prepare command packet for read img ver fail");
 		return -1;
 	}
 
-	rtb_cfg.cmd_state.opcode = HCI_VENDOR_ENABLE_GEN_ISO;
+	rtb_cfg.cmd_state.opcode = HCI_VENDOR_8761C_COMMON;
 	rtb_cfg.cmd_state.state = CMD_STATE_UNKNOWN;
-	result = start_transmit_wait(fd, nskb, OP_GEN_ISO, 1000, 0);
+	result = start_transmit_wait(fd, nskb, OP_8761C_COMMON, 1000, 0);
 	skb_free(nskb);
 	if (result < 0) {
-		RS_ERR("OP_GEN_ISO Transmission error");
+		RS_ERR("OP_8761C_COMMON Transmission error");
+		return result;
+	}
+
+	return 0;
+}
+
+int h5_force_ota(int fd)
+{
+	struct sk_buff *nskb = NULL;
+	unsigned char cmd[16] = { 0 };
+	int result;
+
+	cmd[0] = 0xbb;
+	cmd[1] = 0xfd;
+	cmd[2] = 1;
+	cmd[3] = 0x02;
+
+	nskb = h5_prepare_pkt(&rtb_cfg, cmd, 4, HCI_COMMAND_PKT);
+	if (!nskb) {
+		RS_ERR("Prepare command packet for force ota fail");
+		return -1;
+	}
+
+	rtb_cfg.cmd_state.opcode = HCI_VENDOR_8761C_COMMON;
+	rtb_cfg.cmd_state.state = CMD_STATE_UNKNOWN;
+	result = start_transmit_wait(fd, nskb, OP_8761C_COMMON, 1000, 0);
+	skb_free(nskb);
+	if (result < 0) {
+		RS_ERR("OP_8761C_COMMON Transmission error");
 		return result;
 	}
 
@@ -1601,7 +1652,8 @@ static int rtb_download_fwc(int fd, uint8_t *buf, int size, int proto,
 		else
 			add_pkts += 7;
 		/* Make sure the last pkt is for config */
-		if (rtb_cfg.chip_type == CHIP_8761CTV)
+		if (rtb_cfg.chip_type == CHIP_8761CTV ||
+		    rtb_cfg.chip_type == CHIP_8852DS)
 			add_pkts = 0;
 	} else
 		add_pkts = 0; /* No additional packets need */
@@ -2040,9 +2092,15 @@ static int rtb_config(int fd, int proto, int speed, char* bdaddr, struct termios
 		break;
 	case ROM_LMP_8703b:
 		rtb_vendor_read(fd, READ_CHIP_TYPE);
+		switch (rtb_cfg.chip_type) {
+		case 0:
+			rtb_cfg.chip_type = CHIP_8723CS;
+			break;
+		}
 		break;
 	case ROM_LMP_8852a:
-		rtb_vendor_read(fd, READ_CHIP_TYPE);
+		if (rtb_cfg.hci_rev == 0x0b)
+			rtb_vendor_read(fd, READ_CHIP_TYPE);
 		break;
 	}
 
@@ -2142,6 +2200,15 @@ static int rtb_config(int fd, int proto, int speed, char* bdaddr, struct termios
 	case CHIP_8851BS:
 		max_patch_size = 0x10050 + 529; /* 64KB */
 		break;
+	case CHIP_8852DS:
+		max_patch_size = 0x20D90 + 529;  /* 131KB */
+		break;
+	case CHIP_8922AS:
+		max_patch_size = 0x23810 + 529;  /* 142KB */
+		break;
+	case CHIP_8852BTS:
+		max_patch_size = 0x27E00 + 529; /* 159.5KB */
+		break;
 	case CHIP_8761CTV:
 		max_patch_size = 1024 * 1024;
 		break;
@@ -2216,6 +2283,57 @@ start_download:
 	if (rtb_cfg.chip_type == CHIP_8761BTC)
 		goto done;
 
+#ifdef AUTO_UPDATE_FOR_8761C
+	if (rtb_cfg.chip_type == CHIP_8761CTV) {
+		uint8_t img_num = rtb_cfg.total_buf[1];
+		T_IMG_INFO *img_info;
+		uint32_t payload_len = 0;
+		uint16_t header_len = img_num * 12 + 2;
+		uint8_t *payload = rtb_cfg.total_buf + header_len;
+
+		for (int i = 0; i < img_num; i++)
+		{
+			img_info = (void *)(rtb_cfg.total_buf + i * sizeof(*img_info) + 2);
+			switch(img_info->img_id)
+			{
+			case IMG_MCUAPP:
+				upg_opt.fw_ver.app.id = img_info->img_id;
+				upg_opt.fw_ver.app.version = *(uint32_t *)(payload + payload_len + IMGVER_OFFSET);
+				upg_opt.fw_ver.app.git_commitid = *(uint32_t *)(payload + payload_len + IMGVER_OFFSET + 4);
+				break;
+			case IMG_LOWERSTACK:
+				upg_opt.fw_ver.lowerstack.id = img_info->img_id;
+				upg_opt.fw_ver.lowerstack.version = *(uint32_t *)(payload + payload_len + IMGVER_OFFSET);
+				upg_opt.fw_ver.lowerstack.git_commitid = *(uint32_t *)(payload + payload_len + IMGVER_OFFSET + 4);
+				break;
+			}
+			payload_len += img_info->img_len;
+		}
+
+		if (!(upg_opt.fw_ver.app.version < FT_APP_VER || upg_opt.fw_ver.lowerstack.version < FT_LOWERSTACK_VER))
+		{
+			if (proto == HCI_UART_3WIRE)
+			{
+				h5_read_img_ver(fd);
+			}
+			else
+			{
+				h4_read_img_ver(fd);
+			}
+			if ((upg_opt.fw_ver.app.git_commitid != upg_opt.curr_ver.app.git_commitid) || (upg_opt.fw_ver.lowerstack.git_commitid != upg_opt.curr_ver.lowerstack.git_commitid))
+			{
+				if (proto == HCI_UART_3WIRE)
+				{
+					h5_force_ota(fd);
+				}
+				else
+				{
+					h4_force_ota(fd);
+				}
+			}
+		}
+	}
+#endif
 	if (rtb_cfg.chip_type == CHIP_8761CTV) {
 		uint8_t *tmp;
 		int tlen;
@@ -2257,23 +2375,15 @@ start_download:
 				       proto, ti);
 		if (ret < 0)
 			goto buf_free;
-
-		if (rtb_cfg.chip_type == CHIP_8761CTV)
-		{
-			rtb_cfg.link_estab_state = H5_HCI_RESET;
-			if (proto == HCI_UART_3WIRE)
-				h5_enable_gen_iso_num_compl_pkt_evt(fd);
-			else
-				h4_enable_gen_iso_num_compl_pkt_evt(fd);
-		}
 	}
 
 	if (rtb_cfg.chip_type == CHIP_8761CTV && rtb_cfg.upg_buf) {
+		rtb_cfg.link_estab_state = H5_HCI_RESET;
 		if (proto == HCI_UART_3WIRE)
 		{
 			ret = h5_needs_hci_upgrade(fd, rtb_cfg.upg_buf,
 					   rtb_cfg.upg_len);
-			if (!need_ota_upgrade)
+			if (!upg_opt.upgrade)
 			{
 				rtb_cfg.link_estab_state = H5_ACTIVE;
 				free(rtb_cfg.upg_buf);

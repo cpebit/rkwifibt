@@ -155,6 +155,9 @@ static const struct {
 	{ ROM_LMP_8822b, 33 }, /* id 33 for 8822E */
 	{ ROM_LMP_8852a, 34 }, /* id 34 for 8852BP */
 	{ ROM_LMP_8851b, 36 }, /* id 36 for 8851BS */
+	{ ROM_LMP_8852a, 42 }, /* id 42 for 8852DS */
+	{ ROM_LMP_8922a, 44 }, /* id 44 for 8922AS */
+	{ ROM_LMP_8852a, 47 }, /* id 47 for 8852BTS */
 	{ ROM_LMP_8761a, 51 }, /* id 51 for 8761C */
 };
 
@@ -186,8 +189,8 @@ static struct patch_info h4_patch_table[] = {
 	{ RTL_FW_MATCH_HCI_VER | RTL_FW_MATCH_HCI_REV, CHIP_8723DS,
 		ROM_LMP_8723b, ROM_LMP_8723b, 8, 0x000d,
 		"rtl8723dsh4_fw", "rtl8723dsh4_config", "RTL8723DSH4"},
-
-	{ RTL_FW_MATCH_HCI_VER | RTL_FW_MATCH_HCI_REV, CHIP_8761CTV,
+	/* RTL8761C */
+	{ RTL_FW_MATCH_HCI_REV, CHIP_8761CTV,
 		ROM_LMP_8761a, 0xffff, 0x0c, 0x000e,
 		"rtl8761c_mx_fw", "rtl8761c_mx_config", "RTL8761CTV" },
 
@@ -267,12 +270,32 @@ static struct patch_info patch_table[] = {
 		ROM_LMP_8851b, ROM_LMP_8851b, 0x0c, 0x000b,
 		"rtl8851bs_fw", "rtl8851bs_config", "RTL8851BS" },
 
+	/* RTL8852DS */
+	{ RTL_FW_MATCH_HCI_REV, CHIP_8852DS,
+		ROM_LMP_8852a, ROM_LMP_8852a, 0x0c, 0x000d,
+		"rtl8852ds_fw", "rtl8852ds_config", "RTL8852DS" },
+
+	/* RTL8922AS */
+	{ RTL_FW_MATCH_HCI_REV, CHIP_8922AS,
+		ROM_LMP_8922a, ROM_LMP_8922a, 0x0c, 0x000a,
+		"rtl8922as_fw", "rtl8922as_config", "RTL8922AS" },
+
+	/* RTL8852BTS */
+	{ RTL_FW_MATCH_HCI_REV, CHIP_8852BTS,
+		ROM_LMP_8852a, ROM_LMP_8852a, 0x0c, 0x0087,
+		"rtl8852bts_fw", "rtl8852bts_config", "RTL8852BTS" },
+
 	/* RTL8703BS
 	 * RTL8723CS_XX
 	 * RTL8723CS_CG
 	 * RTL8723CS_VF
 	 * Use the sampe lmp subversion 0x8703
 	 * */
+	{ RTL_FW_MATCH_CHIP_TYPE | RTL_FW_MATCH_HCI_VER | RTL_FW_MATCH_HCI_REV,
+		/* The real chip type will be read during init. */
+		CHIP_8723CS,
+		ROM_LMP_8703b, ROM_LMP_8703b, 7, 0x000b,
+		"rtl8723cs_0_fw", "rtl8723cs_0_config", "RTL8723CS"},
 	{ RTL_FW_MATCH_CHIP_TYPE, CHIP_8703BS,
 		ROM_LMP_8703b, ROM_LMP_8703b, 0, 0,
 		"rtl8703b_fw", "rtl8703b_config", "RTL8703BS"},
@@ -295,11 +318,11 @@ static struct patch_info patch_table[] = {
 		ROM_LMP_8723b, ROM_LMP_8723b, 8, 0x000d,
 		"rtl8723d_fw", "rtl8723d_config", "RTL8723DS"},
 	/* RTL8733BS */
-	{ RTL_FW_MATCH_HCI_VER | RTL_FW_MATCH_HCI_REV, CHIP_8733BS,
-		ROM_LMP_8723b, ROM_LMP_8723b, 11, 0x000f,
+	{ RTL_FW_MATCH_HCI_REV, CHIP_8733BS,
+		ROM_LMP_8723b, ROM_LMP_8723b, 0, 0x000f,
 		"rtl8733bs_fw", "rtl8733bs_config", "RTL8733BS"},
 	/* RTL8761C */
-	{ RTL_FW_MATCH_HCI_VER | RTL_FW_MATCH_HCI_REV, CHIP_8761CTV,
+	{ RTL_FW_MATCH_HCI_REV, CHIP_8761CTV,
 		ROM_LMP_8761a, 0xffff, 0x0c, 0x000e,
 		"rtl8761c_mx_fw", "rtl8761c_mx_config", "RTL8761CTV" },
 	/* add entries here*/
@@ -597,6 +620,7 @@ static int is_mac(uint8_t chip_type, uint16_t offset)
 	case CHIP_8723CS_XX:
 	case CHIP_8723CS_CG:
 	case CHIP_8723CS_VF:
+	case CHIP_8723CS:
 		if (offset == 0x0044)
 			return 1;
 		break;
@@ -607,6 +631,9 @@ static int is_mac(uint8_t chip_type, uint16_t offset)
 	case CHIP_8852BS:
 	case CHIP_8852CS:
 	case CHIP_8851BS:
+	case CHIP_8852DS:
+	case CHIP_8922AS:
+	case CHIP_8852BTS:
 	case CHIP_8761CTV:
 		if (offset == 0x0030)
 			return 1;
@@ -632,6 +659,10 @@ static uint16_t get_mac_offset(uint8_t chip_type)
 	case CHIP_8822BS:
 	case CHIP_8723DS:
 	case CHIP_8821CS:
+	case CHIP_8723CS_XX:
+	case CHIP_8723CS_CG:
+	case CHIP_8723CS_VF:
+	case CHIP_8723CS:
 		return 0x0044;
 	case CHIP_8822CS:
 	case CHIP_8761B:
@@ -640,6 +671,9 @@ static uint16_t get_mac_offset(uint8_t chip_type)
 	case CHIP_8852BS:
 	case CHIP_8852CS:
 	case CHIP_8851BS:
+	case CHIP_8852DS:
+	case CHIP_8922AS:
+	case CHIP_8852BTS:
 	case CHIP_8761CTV:
 		return 0x0030;
 //	case 0: /* special for not setting chip_type */
