@@ -114,6 +114,7 @@
 
 #include <stdlib.h>
 #include <time.h>
+#include <unistd.h>
 
 #ifdef ANDROID
 #include <termios.h>
@@ -328,7 +329,7 @@ readApName(char *name, int len)
     return 0;
 }
 
-int
+void
 writeApName(const char* name, int len)
 {
 	FILE* devInfo = NULL;
@@ -370,7 +371,7 @@ parse_bdaddr_rand(char *optarg)
 				optargtest[j] = metachar[rand()%16]; 
 			}
 		}
-		optargtest[17]="\0";
+		optargtest[17]='\0';
 		
 		writeApName(optargtest,AP_NAME_SUFFIX_LEN);
 	}
@@ -530,7 +531,7 @@ parse_cmd_line(int argc, char **argv)
 	int c;
 	int ret = 0;
 
-	typedef int (*PFI)();
+	typedef int (*PFI)(char *);
 
 	PFI parse[] = { parse_patchram, parse_baudrate,
 		parse_bdaddr,parse_bdaddr_rand, parse_enable_lpm, parse_enable_hci,
